@@ -10,20 +10,20 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
-// ss4r
-int ss4r(const int x);
-RcppExport SEXP _ss4r_ss4r(SEXP xSEXP) {
+// call_ss3_notmain
+int call_ss3_notmain(const int x);
+RcppExport SEXP _ss4r_call_ss3_notmain(SEXP xSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const int >::type x(xSEXP);
-    rcpp_result_gen = Rcpp::wrap(ss4r(x));
+    rcpp_result_gen = Rcpp::wrap(call_ss3_notmain(x));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_ss4r_ss4r", (DL_FUNC) &_ss4r_ss4r, 1},
+    {"_ss4r_call_ss3_notmain", (DL_FUNC) &_ss4r_call_ss3_notmain, 1},
     {NULL, NULL, 0}
 };
 

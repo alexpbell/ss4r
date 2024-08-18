@@ -40715,7 +40715,7 @@ extern "C"  {
   }
 }
 // [[Rcpp::export]]
-int ss4r(const int x) {
+int call_ss3_notmain(const int x) {
  char * argv = "ss3";
  int argc = 1;
  int retnm = notmain(argc, &argv);

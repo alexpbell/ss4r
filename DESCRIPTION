@@ -1,12 +1,14 @@
 Package: ss4r
-Type: Package
-Title: What the Package Does in One 'Title Case' Line
-Version: 1.0
-Date: 2024-08-18
-Author: Alex Campbell
-Maintainer: Alex Campbell <alex@alexpbell.com>
-Description: One paragraph description of what the package does as one
-        or more full sentences.
-License: MIT
-Imports: Rcpp (>= 1.0.12)
-LinkingTo: Rcpp
+Title: Stock Synthesis 4 R
+Version: 0.0.0.9000
+Authors@R:
+ person("Campbell", "Alexander", , "alex@alexpbell.com", role = c("aut", "cre"), comment = c(ORCID = "YOUR-ORCID-ID"))
+Description: Stock Synthesis as a "pure" R package
+License: CC0 + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1
+LinkingTo:
+    Rcpp
+Imports:
+    Rcpp
