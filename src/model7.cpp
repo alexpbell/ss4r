@@ -1,0 +1,640 @@
+/**
+ * $Id$
+ *
+ * Author: David Fournier
+ * Copyright (c) 2008-2012 Regents of the University of California
+ */
+#include <iostream>
+#include "df1b2fun.h"
+#include "admodel.h"
+#include <signal.h>
+
+//#include <parallel.h>
+
+#ifdef DEBUG
+  #include <cassert>
+#endif
+
+adstring strip_full_path(const adstring& _s)
+{
+  size_t n = _s.size();
+  size_t i = n - 1;
+  for (; i >= 1; i--)
+  {
+#if defined(_WIN32)
+    if (_s(i) == '\\' || _s(i) == '/' || _s(i) == ':') break;
+#else
+    if (_s(i) == '/' || _s(i) == ':') break;
+#endif
+  }
+
+  adstring s(1, n - i);
+  s = _s(i + 1, n);
+
+  return s;
+}
+
+void set_signal_handlers(void)
+{
+  signal(SIGFPE,exit_handler);
+  signal(SIGSEGV,exit_handler);
+  signal(SIGILL,exit_handler);
+  signal(SIGINT,exit_handler);
+}
+
+ad_comm::ad_comm(int _argc,char * _argv[])
+{
+  if (option_match(_argc,_argv,"-version") > -1
+   || option_match(_argc,_argv,"--version") > -1)
+  {
+    void banner(const adstring& program_name);
+    banner(_argv[0]);
+
+    ad_exit(0);
+  }
+
+  ad_comm::argc=_argc;
+  ad_comm::argv=_argv;
+
+#ifdef DIAG_TIMER
+  if (option_match(_argc,_argv,"-time")>-1)
+  {
+    time_flag=1;
+  }
+  else
+  {
+    time_flag=0;
+  }
+  if (time_flag)
+  {
+    if (!ptm)
+    {
+      ptm=new adtimer();
+    }
+    if (!ptm1)
+    {
+      ptm1=new adtimer();
+    }
+  }
+#endif
+  no_atlas_flag=0;
+  if (option_match(_argc,_argv,"-noatlas")>-1) no_atlas_flag=1;
+
+#if defined(USE_ADPVM)
+  int pvm_flag=0;
+  if (option_match(_argc,_argv,"-slave")>-1)  pvm_flag=2;
+  if (option_match(_argc,_argv,"-master")>-1) pvm_flag=1;
+
+  if (pvm_flag)
+    pvm_manager = new adpvm_manager(pvm_flag);
+  else
+    pvm_manager = NULL;
+
+  if (pvm_manager)
+  {
+    if (pvm_manager->mode==2)  //slave
+    {
+      int on=0; int nopt=0;
+      if ( (on=option_match(_argc,_argv,"-slave",nopt))>-1)
+      {
+        if (nopt ==1)
+        {
+          pvm_manager->slave_number=atoi(ad_comm::argv[on+1]);
+        }
+        else
+        {
+          cerr << "Wrong number of options to -slave -- must be 1"
+                  " you have " << nopt << endl;
+          ad_exit(1);
+        }
+      }
+      if ( (on=option_match(_argc,_argv,"-slavedir",nopt))>-1)
+      {
+        if (nopt ==1)
+        {
+          ad_chdir(_argv[on+1]);
+        }
+        else
+        {
+          cerr << "Wrong number of options to -slavedir -- must be 1"
+                  " you have " << nopt << endl;
+        }
+      }
+    }
+  }
+#endif
+
+  /*
+    if (option_match(_argc,_argv,"-gui")>-1)
+    {
+      void vm_initialize(void);
+      vm_initialize();
+    }
+  */
+  set_signal_handlers();
+  adprogram_name = strip_full_path((adstring)_argv[0]);
+  //int len=strlen(_argv[0]);
+  //for (int i=1;i<=len;i++) adprogram_name[i]=tolower(adprogram_name[i]);
+  adstring workdir;
+  ad_getcd(workdir);
+  if (_argc>1)
+  {
+    if (option_match(_argc,_argv,"-?")>-1
+     || option_match(_argc,_argv,"-help")>-1
+     || option_match(_argc,_argv,"--help")>-1)
+    {
+      // remove path (if user runs -help)
+      for (size_t i = adprogram_name.size(); i >= 1; i--)
+      {
+#ifdef _WIN32
+        if (adprogram_name(i) == '\\')
+#else
+        if (adprogram_name(i) == '/')
+#endif
+        {
+          adprogram_name=adprogram_name(i+1,adprogram_name.size());
+          break;
+        }
+      }
+
+      //(*ad_printf)(" %s", (char*)admb_banner);
+      printf( "Usage: %s [options]\n\n",(char*)(adprogram_name));
+
+      printf( "Options:\n");
+      printf( " -ainp FILE      change default ascii input parameter "
+      "filename to FILE\n");
+      printf( " -binp FILE      change default binary input parameter "
+      "filename to FILE\n");
+      printf( " -est            only do the parameter estimation\n");
+      printf( " -noest          do not do the parameter estimation "
+      "(optimization)\n");
+      printf( " -ind FILE       change default input data filename to "
+      "FILE\n");
+      printf( " -lmn N          use limited memory quasi newton -- keep "
+      "N steps\n");
+      printf( " -lmn2 N         use other limited memory quasi newton -- "
+      "keep N steps\n");
+      printf( " -ilmn N         use other limited memory quasi newton "
+      "for random effects models - keep N steps\n");
+      printf( " -dd N           check derivatives after N function "
+      "evaluations\n");
+      printf( " -lprof          perform profile likelihood "
+      "calculations\n");
+      printf( " -maxph N        increase the maximum phase number to "
+      "N\n");
+      printf( " -mcdiag         use diagonal covariance matrix for mcmc "
+      "with diagonal values 1\n");
+      printf( " -mcmc [N]       perform markov chain monte carlo with N "
+      "simulations\n");
+      printf( " -mcmult N       multiplier N for mcmc default\n");
+      printf( " -mcr            resume previous mcmc\n");
+      printf( " -mcrb  N        reduce amount of correlation in the "
+      "covariance matrix 1<=N<=9\n");
+      printf( " -mcnoscale      don't rescale step size for mcmc "
+      "depending on acceptance rate\n");
+      printf( " -nosdmcmc       turn off mcmc histogram calcs to make "
+      "mcsave run faster\n");
+      printf( " -mcprobe N      use probing strategy for mcmc with "
+      "factor N\n");
+      printf( " -mcgrope N      Deprecated, same as -mcprobe\n");
+      printf( " -mcseed N       seed for random number generator for "
+      "markov chain monte carlo\n");
+      printf( " -mcscale N      rescale step size for first N "
+      "evaluations\n");
+      printf( " -mcsave N       save the parameters for every Nth "
+      "simulation\n");
+      printf( " -mceval         go through the saved mcmc values from a "
+      "previous mcsave\n");
+      printf( " -nuts           MCMC draws with the no-U-turn sampler\n");
+      printf( " -rwm            MCMC draws with a Metopolis sampler.\n");
+      printf( " -mcu            use uniformly distributed steps for "
+      "mcmc instead of random normal\n");
+      printf( " -crit N1,N2,... set gradient magnitude convergence "
+      "criterion to N\n");
+      printf( " -iprint N       print out function minimizer report "
+      "every N iterations (default %i).\n", defaults::iprint);
+      printf( " -maxfn N1,N2,.. set maximum number opf function eval's "
+      "to N\n");
+      printf( " -rs             if function minimizer can't make "
+      "progress rescale and try again\n");
+      //(*ad_printf)( " -sp             for DLL running from splus write to "
+      //"command window\n");
+      printf( " -nox            suppress vector and gradient values in "
+      "minimizer screen report\n");
+      printf( " -phase N        start minimization in phase N\n");
+      printf( " -simplex        use simplex for minimization -- "
+      "deprecated, use -neldmead\n");
+      printf( " -neldmead       use Nelder-Mead simplex algorithm for "
+      "minimization\n");
+      printf( " -nohess         don't do hessian or delta method for std "
+      "dev\n");
+      printf( " -eigvec         calculate eigenvectors of the Hessian\n");
+      printf( " -sdonly         do delta method for std dev estimates "
+      "without redoing hessian\n");
+      printf( " -ams N          set arrmblsize to N "
+      "(ARRAY_MEMBLOCK_SIZE)\n");
+      printf( " -cbs N          set CMPDIF_BUFFER_SIZE to N "
+      "(ARRAY_MEMBLOCK_SIZE)\n");
+      printf( " -mno N          set the maximum number of independent "
+      "variables to N\n");
+      printf( " -mdl N          set the maximum number of dvariables to "
+      "N\n");
+      printf( " -gbs N          set GRADSTACK_BUFFER_SIZE to N "
+      "(ARRAY_MEMBLOCK_SIZE)\n");
+      printf( " -hess_step N    take N Newton steps with inverse Hessian\n");
+      printf( " -hess_step_tol eps set hess_step tolerance to eps\n");
+      printf( " -mip N          set maximum the number of initial parameters "
+      "to a value N that is greater than zero (default is 4000).\n");
+#if defined(USE_ADPVM)
+      printf( " -master         run as PVM master program\n");
+      printf( " -slave          run as PVM slave program\n");
+      printf( " -pvmtime        record timing information for PVM "
+      "performance analysis\n");
+#endif
+      printf( " -display N       N sets display output with \'0\' for quiet display, "
+      "\'1\' for concise display, or \'2\' for legacy display (default is %i).\n",
+      defaults::output);
+      printf( " -info           show how to cite ADMB, license, and "
+      "acknowledgements\n");
+      printf( " -version        show version information\n");
+      printf( " -help           show this message\n\n");
+    //if (function_minimizer::random_effects_flag)
+    //{
+      printf( "Random effects options if applicable\n");
+      printf( " -nr N           maximum number of Newton-Raphson "
+      "steps\n");
+      printf( " -imaxfn N       maximum number of evals in quasi-Newton "
+      "inner optimization\n");
+      printf( " -is N           set importance sampling size to N\n");
+      printf( " -isf N          set importance sampling size funnel "
+      "blocks to N\n");
+      printf( " -isdiag         print importance sampling diagnostics\n");
+      printf( " -hybrid         do hybrid Monte Carlo version of MCMC\n");
+      printf( " -hbf            set the hybrid bounded flag for bounded "
+      "parameters\n");
+      printf( " -hyeps          mean step size for hybrid Monte Carlo\n");
+      printf( " -hynstep        number of steps for hybrid Monte "
+      "Carlo\n");
+      printf( " -noinit         do not initialize RE before inner "
+      "optimization\n");
+      printf( " -ndi N          set maximum number of separable calls\n");
+      printf( " -ndb N          set number of blocks for RE derivatives "
+      "(reduce temp file size)\n");
+      printf( " -ddnr           use high precision Newton-Raphson, for "
+      "banded Hessian case only\n");
+      printf( " -nrdbg          verbose reporting for debugging "
+      "newton-raphson\n");
+#  if defined(__MINI_MAX__)
+      printf( " -mm N           do minimax optimization\n");
+#  endif
+      printf( " -shess          use sparse Hessian structure inner "
+      "optimzation\n\n");
+
+      printf("Read online documentation at http://admb-project.org\n");
+      printf("Contact <users@admb-project.org> for help.\n");
+    //}
+      ad_exit(0);
+    }
+    else if (option_match(_argc,_argv,"-info") > -1)
+    {
+      printf("ADMB Information\n");
+      printf("================\n\n");
+
+      printf("How to Cite ADMB\n");
+      printf("----------------\n\n");
+
+      printf("Fournier, D.A., H.J. Skaug, J. Ancheta, J. Ianelli, "
+      "A. Magnusson, M.N. Maunder,\n");
+      printf("A. Nielsen, and J. Sibert. 2012. AD Model Builder: using "
+      "automatic\n");
+      printf("differentiation for statistical inference of highly "
+      "parameterized complex\n");
+      printf("nonlinear models. Optim. Methods Softw. 27:233-249.\n\n");
+
+      //(*ad_printf)(" %s", (char*)admb_banner);
+      printf("License\n");
+      printf("-------\n\n");
+
+      printf("Copyright (c) 2008-2021\n");
+      printf("ADMB Foundation and Regents of the University of California\n\n");
+      printf("ADMB is free software and comes with ABSOLUTELY NO "
+      "WARRANTY.\n");
+      printf("You are welcome to redistribute it under certain "
+      "conditions.\n\n");
+      printf("AD Model Builder, or ADMB, was developed by David Fournier "
+      "of Otter Research\n");
+      printf("Ltd, Sidney, BC, Canada. In 2007, scientists from the "
+      "University of Hawai'i at\n");
+      printf("Manoa Pelagic Fisheries Research Program (John Sibert and "
+      "Anders Nielsen) and\n");
+      printf("the Inter-American Tropical Tuna Commission (Mark "
+      "Maunder), in consultation with\n");
+      printf("scientists from NOAA Fisheries (Richard Methot), created "
+      "the non-profit ADMB\n");
+      printf("Foundation (admb-foundation.org) with the goal of "
+      "increasing the number of ADMB\n");
+      printf("users by making the software free and open source. In "
+      "partnership with NOAA\n");
+      printf("Fisheries and the National Center for Ecological Analysis "
+      "and Synthesis (NCEAS,\n");
+      printf("www.nceas.ucsb.edu), the ADMB Foundation obtained funding "
+      "from the Gordon and\n");
+      printf("Betty Moore Foundation (www.moore.org) to acquire the "
+      "copyright to the ADMB\n");
+      printf("software suite, in order to make it broadly and freely "
+      "available to the research\n");
+      printf("community. In 2008 the copyright was transferred from "
+      "Otter Research Ltd to the\n");
+      printf("University of California. The binary files were released "
+      "in November 2008 and\n");
+      printf("the source code was released in December 2009. More "
+      "information about the ADMB\n");
+      printf("Project can be found at admb-project.org.\n\n");
+      printf("ADMB was originally developed by David Fournier of Otter "
+      "Research Ltd.\n\n");
+      printf("It is now maintained by the ADMB Core Team, whose members "
+      "are listed on\n");
+      printf("http://admb-project.org/developers/core-team.\n");
+
+      ad_exit(0);
+    }
+  }
+  allocate();
+}
+/**
+Default constructor.
+*/
+ad_comm::ad_comm()
+{
+  allocate();
+}
+void ad_comm::allocate(void)
+{
+#if defined (_WIN32)
+  directory_prefix='\\';
+#else
+  directory_prefix='/';
+#endif
+  adstring tmpstring;
+
+#if defined(_MSC_VER)
+  //remove path
+  for (int i = (int)adprogram_name.size(); i >= 1; i--)
+  {
+    if (adprogram_name(i)==directory_prefix)
+    {
+      adprogram_name=adprogram_name(i+1,adprogram_name.size());
+      break;
+    }
+  }
+#endif
+
+#if defined(_WIN32)
+  // strip off the .exe
+  #ifdef DEBUG
+  size_t _n = adprogram_name.size();
+  assert(_n <= INT_MAX);
+  #endif
+  int n = (int)adprogram_name.size();
+  if (n > 4)
+  {
+    if (adprogram_name(n - 3) == '.'
+        && tolower(adprogram_name(n - 2)) == 'e'
+        && tolower(adprogram_name(n - 1)) == 'x'
+        && tolower(adprogram_name(n)) == 'e')
+    {
+      n -= 4;
+    }
+  }
+  adprogram_name=adprogram_name(1,n);
+#endif
+
+  // change the working directory name
+  if (argc > 1)
+  {
+    int on=0;
+    if ( (on=option_match(argc,argv,"-wd"))>-1)
+    {
+      if (on>argc-2 || argv[on+1][0] == '-')
+      {
+        cerr << "Invalid input data command line option"
+                " -- ignored" << endl;
+      }
+      else
+      {
+        tmpstring = adstring(argv[on+1]);
+        wd_flag=1;
+      }
+    }
+  }
+  if (length(tmpstring))
+  {
+    if (tmpstring(length(tmpstring)) == directory_prefix)
+    {
+      adprogram_name=tmpstring + adprogram_name;
+      working_directory_path = tmpstring;
+    }
+    else
+    {
+      adprogram_name=tmpstring + directory_prefix + adprogram_name;
+      working_directory_path = tmpstring + directory_prefix;
+    }
+  }
+
+/*
+  tmpstring=adprogram_name + adstring(".dat");
+  if (argc > 1)
+  {
+    int on=0;
+    if ( (on=option_match(argc,argv,"-ind"))>-1)
+    {
+      if (on>argc-2 || argv[on+1][0] == '-')
+      {
+        cerr << "Invalid input data command line option"
+                " -- ignored" << endl;
+      }
+      else
+      {
+        tmpstring = adstring(argv[on+1]);
+      }
+    }
+  }
+  global_datafile= new cifstream(tmpstring);
+  if (!global_datafile)
+  {
+    cerr << "Error trying to open data input file "
+         << tmpstring << endl;
+  }
+  else
+  {
+    if (!(*global_datafile))
+    {
+      cerr << "Error trying to open data input file "
+           << tmpstring << endl;
+      delete global_datafile;
+      global_datafile=NULL;
+    }
+  }
+*/
+  adstring ts=adprogram_name + adstring(".log");
+
+  global_logfile = new ofstream((char*)ts);
+
+  int biopt=-1;
+  int aiopt=-1;
+  biopt=option_match(argc,argv,"-binp");
+  aiopt=option_match(argc,argv,"-ainp");
+
+  tmpstring=adprogram_name + adstring(".bin");
+  if (!global_bparfile && aiopt == -1)
+  {
+    if (biopt>-1)
+    {
+      if (biopt>argc-2 || argv[biopt+1][0] == '-')
+      {
+        cerr << "Invalid input parameter file command line option"
+                " -- ignored" << endl;
+      }
+      else
+      {
+        tmpstring = adstring(argv[biopt+1]);
+      }
+    }
+    global_bparfile = new uistream(tmpstring);
+    if (global_bparfile)
+    {
+      if (!(*global_bparfile))
+      {
+        if (biopt>-1)
+        {
+          cerr << "Error trying to open binary input par file "
+               << tmpstring << endl;
+          ad_exit(1);
+        }
+        delete global_bparfile;
+        global_bparfile=NULL;
+      }
+    }
+  }
+  tmpstring = adprogram_name + adstring(".pin");
+  if (!global_parfile)
+  {
+    if (aiopt>-1)
+    {
+      if (aiopt>argc-2 || argv[aiopt+1][0] == '-')
+      {
+        cerr << "Invalid input parameter file command line option"
+                " -- ignored" << endl;
+      }
+      else
+      {
+        tmpstring = adstring(argv[aiopt+1]);
+      }
+    }
+    global_parfile= new cifstream(tmpstring);
+    if (global_parfile)
+    {
+      if (!(*global_parfile))
+      {
+        if (aiopt>-1)
+        {
+          cerr << "Error trying to open ascii inoput par file "
+               << tmpstring << endl;
+          ad_exit(1);
+        }
+        delete global_parfile;
+        global_parfile = nullptr;
+      }
+    }
+  }
+}
+
+/**
+Destructor
+*/
+ad_comm::~ad_comm()
+{
+#ifdef DIAG_TIMER
+  if (ptm)
+  {
+    delete ptm;
+    ptm=0;
+  }
+  if (ptm1)
+  {
+    delete ptm1;
+    ptm1=0;
+  }
+#endif
+  if (global_datafile)
+  {
+    delete global_datafile;
+    global_datafile = nullptr;
+  }
+  if (global_parfile)
+  {
+    delete global_parfile;
+    global_parfile = nullptr;
+  }
+  if (global_logfile)
+  {
+    delete global_logfile;
+    global_logfile = nullptr;
+  }
+}
+
+void function_minimizer::pre_userfunction(void)
+{
+  if (lapprox)
+  {
+    if (lapprox->hesstype==2)
+    {
+      //lapprox->num_separable_calls=0;
+      lapprox->separable_calls_counter=0;
+    }
+  }
+#if defined(__GNUC__)
+  #if __GNUC__ > 4
+  cout << std::defaultfloat;
+  #endif
+#else
+  cout << std::defaultfloat;
+#endif
+  userfunction();
+#if defined(__GNUC__)
+  #if __GNUC__ > 4
+  cout << std::defaultfloat;
+  #endif
+#else
+  cout << std::defaultfloat;
+#endif
+  if (lapprox)
+  {
+    if (lapprox->hesstype==2)
+    {
+      lapprox->num_separable_calls=lapprox->separable_calls_counter;
+
+      double tmp=0.0;
+      int inner_opt_value=inner_opt();
+      if (lapprox->saddlepointflag==2)
+      {
+        if (inner_opt_value !=0 )
+        {
+          for (int i = 1; i <= lapprox->num_separable_calls; i++)
+          {
+            tmp-=(*lapprox->separable_function_difference)(i);
+          }
+          value(*objective_function_value::pobjfun)=tmp;
+        }
+      }
+      else
+      {
+        for (int i = 1; i <= lapprox->num_separable_calls; i++)
+        {
+          tmp+=(*lapprox->separable_function_difference)(i);
+        }
+        value(*objective_function_value::pobjfun)=tmp;
+      }
+    }
+  }
+}
