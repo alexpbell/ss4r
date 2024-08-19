@@ -7,7 +7,7 @@
 call_stock_synthesis(x)
 }
 \arguments{
-\item{x}{anything right now}
+\item{x}{anything right now!}
 }
 \description{
 Call Stock Synthesis
